@@ -28,10 +28,10 @@ struct ISOLatin1String: Sendable, Hashable {
         return string
     }
 
-    private func withISOLatin1BytesSlowPath<Result>(
-        _ body: (UnsafeBufferPointer<UInt8>) throws -> Result
-    ) rethrows -> Result {
-        try withUnsafeTemporaryAllocation(of: UInt8.self, capacity: self._storage.unicodeScalars.count) { buffer in
+    private func withISOLatin1BytesSlowPath<Result, Failure: Error>(
+        _ body: (UnsafeBufferPointer<UInt8>) throws(Failure) -> Result
+    ) throws(Failure) -> Result {
+        try withUnsafeTemporaryAllocation(of: UInt8.self, capacity: self._storage.unicodeScalars.count) { buffer throws(Failure) in
             for (index, scalar) in self._storage.unicodeScalars.enumerated() {
                 assert(scalar.value <= UInt8.max)
                 buffer[index] = UInt8(truncatingIfNeeded: scalar.value)
@@ -71,10 +71,14 @@ struct ISOLatin1String: Sendable, Hashable {
         }
     }
 
-    func withUnsafeBytes<Result>(_ body: (UnsafeBufferPointer<UInt8>) throws -> Result) rethrows -> Result {
+    func withUnsafeBytes<Return, Failure: Error>(_ body: (UnsafeBufferPointer<UInt8>) throws(Failure) -> Return) throws(Failure) -> Return {
         if self._storage.isASCII {
             var string = self._storage
-            return try string.withUTF8(body)
+            return try string.withUTF8 { buffer in
+                Result { () throws(Failure) in
+                    try body(buffer)
+                }
+            }.get()
         } else {
             return try self.withISOLatin1BytesSlowPath(body)
         }

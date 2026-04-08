@@ -31,11 +31,11 @@ public struct HTTPFields: Sendable, Hashable {
         }
 
         #if !hasFeature(Embedded)
-        func withLock<Result>(_ body: () throws -> Result) rethrows -> Result {
+        func withLock<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
             fatalError()
         }
         #else
-        final func withLock<Result>(_ body: () throws -> Result) rethrows -> Result {
+        final func withLock<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
             try body()
         }
         #endif
@@ -118,7 +118,7 @@ public struct HTTPFields: Sendable, Hashable {
     private final class _StorageWithMutex: _Storage, @unchecked Sendable {
         let mutex = Mutex<Void>(())
 
-        override func withLock<Result>(_ body: () throws -> Result) rethrows -> Result {
+        override func withLock<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
             try self.mutex.withLock { _ in
                 try body()
             }
@@ -129,7 +129,7 @@ public struct HTTPFields: Sendable, Hashable {
     private final class _StorageWithNIOLock: _Storage, @unchecked Sendable {
         let lock = LockStorage.create(value: ())
 
-        override func withLock<Result>(_ body: () throws -> Result) rethrows -> Result {
+        override func withLock<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
             try self.lock.withLockedValue { _ in
                 try body()
             }
