@@ -73,7 +73,9 @@ struct ISOLatin1String: Sendable, Hashable {
         }
     }
 
-    func withUnsafeBytes<Return, Failure: Error>(_ body: (UnsafeBufferPointer<UInt8>) throws(Failure) -> Return) throws(Failure) -> Return {
+    func withUnsafeBytes<Return, Failure: Error>(
+        _ body: (UnsafeBufferPointer<UInt8>) throws(Failure) -> Return
+    ) throws(Failure) -> Return {
         if self._storage.isASCII {
             var string = self._storage
             return try string.withUTF8 { buffer in
