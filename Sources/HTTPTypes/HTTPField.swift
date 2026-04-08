@@ -219,6 +219,8 @@ extension HTTPField: CustomStringConvertible {
     }
 }
 
+#if !hasFeature(Embedded)
+
 extension HTTPField: CustomPlaygroundDisplayConvertible {
     public var playgroundDescription: Any {
         self.description
@@ -260,6 +262,8 @@ extension HTTPField: Codable {
         }
     }
 }
+
+#endif
 
 extension HTTPField {
     static func isValidToken(_ token: some StringProtocol) -> Bool {

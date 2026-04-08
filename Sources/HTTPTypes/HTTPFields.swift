@@ -30,9 +30,15 @@ public struct HTTPFields: Sendable, Hashable {
         required init() {
         }
 
+        #if !hasFeature(Embedded)
         func withLock<Result>(_ body: () throws -> Result) rethrows -> Result {
             fatalError()
         }
+        #else
+        final func withLock<Result>(_ body: () throws -> Result) rethrows -> Result {
+            try body()
+        }
+        #endif
 
         var ensureIndex: [String: (first: UInt16, last: UInt16)] {
             self.withLock {
@@ -107,6 +113,7 @@ public struct HTTPFields: Sendable, Hashable {
         }
     }
 
+    #if !hasFeature(Embedded)
     @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
     private final class _StorageWithMutex: _Storage, @unchecked Sendable {
         let mutex = Mutex<Void>(())
@@ -129,9 +136,12 @@ public struct HTTPFields: Sendable, Hashable {
         }
     }
     #endif
+    #endif
 
     private var _storage = {
-        #if canImport(Darwin)
+        #if hasFeature(Embedded)
+        _Storage()
+        #elseif canImport(Darwin)
         if #available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *) {
             _StorageWithMutex()
         } else {
@@ -166,13 +176,14 @@ public struct HTTPFields: Sendable, Hashable {
             let fields = self.fields(for: name)
             if fields.first(where: { _ in true }) != nil {
                 let separator = name == .cookie ? "; " : ", "
-                return fields.lazy.map(\.value).joined(separator: separator)
+                return fields.lazy.map { $0.value }.joined(separator: separator)
             } else {
                 return nil
             }
         }
         set {
             if let newValue {
+                #if !hasFeature(Embedded)
                 if #available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *),
                     name == .cookie
                 {
@@ -182,9 +193,10 @@ public struct HTTPFields: Sendable, Hashable {
                         },
                         for: name
                     )
-                } else {
-                    self.setFields(CollectionOfOne(HTTPField(name: name, value: newValue)), for: name)
+                    return
                 }
+                #endif
+                self.setFields(CollectionOfOne(HTTPField(name: name, value: newValue)), for: name)
             } else {
                 self.setFields(EmptyCollection(), for: name)
             }
@@ -194,7 +206,7 @@ public struct HTTPFields: Sendable, Hashable {
     /// Access the field values by name as an array of strings. The order of fields is preserved.
     public subscript(values name: HTTPField.Name) -> [String] {
         get {
-            self.fields(for: name).map(\.value)
+            self.fields(for: name).map { $0.value }
         }
         set {
             self.setFields(newValue.lazy.map { HTTPField(name: name, value: $0) }, for: name)
@@ -355,6 +367,8 @@ extension HTTPFields: RangeReplaceableCollection, RandomAccessCollection, Mutabl
     }
 }
 
+#if !hasFeature(Embedded)
+
 extension HTTPFields: CustomDebugStringConvertible {
     public var debugDescription: String {
         self._storage.fields.description
@@ -384,6 +398,8 @@ extension HTTPFields: Codable {
         }
     }
 }
+
+#endif
 
 extension Array {
     // `removalIndices` must be ordered.
