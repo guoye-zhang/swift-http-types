@@ -119,7 +119,7 @@ public struct HTTPFields: Sendable, Hashable {
         let mutex = Mutex<Void>(())
 
         override func withLock<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
-            try self.mutex.withLock { _ in
+            try self.mutex.withLock { _ throws(Failure) in
                 try body()
             }
         }
@@ -130,7 +130,7 @@ public struct HTTPFields: Sendable, Hashable {
         let lock = LockStorage.create(value: ())
 
         override func withLock<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
-            try self.lock.withLockedValue { _ in
+            try self.lock.withLockedValue { _ throws(Failure) in
                 try body()
             }
         }

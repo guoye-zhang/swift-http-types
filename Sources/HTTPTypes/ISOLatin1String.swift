@@ -28,16 +28,18 @@ struct ISOLatin1String: Sendable, Hashable {
         return string
     }
 
-    private func withISOLatin1BytesSlowPath<Result, Failure: Error>(
-        _ body: (UnsafeBufferPointer<UInt8>) throws(Failure) -> Result
-    ) throws(Failure) -> Result {
-        try withUnsafeTemporaryAllocation(of: UInt8.self, capacity: self._storage.unicodeScalars.count) { buffer throws(Failure) in
+    private func withISOLatin1BytesSlowPath<Return, Failure: Error>(
+        _ body: (UnsafeBufferPointer<UInt8>) throws(Failure) -> Return
+    ) throws(Failure) -> Return {
+        try withUnsafeTemporaryAllocation(of: UInt8.self, capacity: self._storage.unicodeScalars.count) { buffer in
             for (index, scalar) in self._storage.unicodeScalars.enumerated() {
                 assert(scalar.value <= UInt8.max)
                 buffer[index] = UInt8(truncatingIfNeeded: scalar.value)
             }
-            return try body(UnsafeBufferPointer(buffer))
-        }
+            return Result { () throws(Failure) in
+                try body(UnsafeBufferPointer(buffer))
+            }
+        }.get()
     }
 
     init(_ string: String) {
