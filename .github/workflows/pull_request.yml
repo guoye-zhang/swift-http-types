@@ -58,6 +58,12 @@ jobs:
       runner_pool: general
       build_scheme: swift-http-types-Package
 
+  wasm-sdk:
+    name: WebAssembly Swift SDK
+    uses: apple/swift-nio/.github/workflows/wasm_swift_sdk.yml@main
+    with:
+      additional_command_arguments: "--target HTTPTypes"
+
   release-builds:
     name: Release builds
     uses: apple/swift-nio/.github/workflows/release_builds.yml@main
