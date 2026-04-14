@@ -62,9 +62,9 @@ jobs:
     name: Build with Embedded Swift
     uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@0.0.9
     with:
-      enable_linux_checks: true
-      enable_macos_checks: true
-      enable_windows_checks: true
+      enable_linux_checks: false
+      enable_macos_checks: false
+      enable_windows_checks: false
       enable_wasm_sdk_build: true
       enable_embedded_wasm_sdk_build: true
       swift_flags: --target HTTPTypes
