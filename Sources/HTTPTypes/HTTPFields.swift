@@ -35,17 +35,17 @@ public struct HTTPFields: Sendable, Hashable {
             fatalError()
         }
         #else
-        #if !hasFeature(Embedded) || os(WASI)
+        #if !hasFeature(Embedded) || (os(WASI) && compiler(>=6.4))
         let mutex = Mutex<Void>(())
         #endif
 
         final func withLock<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
-            #if !hasFeature(Embedded) || os(WASI)
+            #if !hasFeature(Embedded) || (os(WASI) && compiler(>=6.4))
             try self.mutex.withLock { _ throws(Failure) in
                 try body()
             }
             #else
-            // No Mutex
+            // Mutex not available
             try body()
             #endif
         }
