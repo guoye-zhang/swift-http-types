@@ -30,13 +30,24 @@ public struct HTTPFields: Sendable, Hashable {
         required init() {
         }
 
-        #if !hasFeature(Embedded)
+        #if canImport(Darwin) && !hasFeature(Embedded)
         func withLock<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
             fatalError()
         }
         #else
+        #if !hasFeature(Embedded) || os(WASI)
+        let mutex = Mutex<Void>(())
+        #endif
+
         final func withLock<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
+            #if !hasFeature(Embedded) || os(WASI)
+            try self.mutex.withLock { _ throws(Failure) in
+                try body()
+            }
+            #else
+            // No Mutex
             try body()
+            #endif
         }
         #endif
 
@@ -113,7 +124,7 @@ public struct HTTPFields: Sendable, Hashable {
         }
     }
 
-    #if !hasFeature(Embedded)
+    #if canImport(Darwin) && !hasFeature(Embedded)
     @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
     private final class _StorageWithMutex: _Storage, @unchecked Sendable {
         let mutex = Mutex<Void>(())
@@ -125,7 +136,6 @@ public struct HTTPFields: Sendable, Hashable {
         }
     }
 
-    #if canImport(Darwin)
     private final class _StorageWithNIOLock: _Storage, @unchecked Sendable {
         let lock = LockStorage.create(value: ())
 
@@ -136,19 +146,16 @@ public struct HTTPFields: Sendable, Hashable {
         }
     }
     #endif
-    #endif
 
     private var _storage = {
-        #if hasFeature(Embedded)
-        _Storage()
-        #elseif canImport(Darwin)
+        #if canImport(Darwin) && !hasFeature(Embedded)
         if #available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *) {
             _StorageWithMutex()
         } else {
             _StorageWithNIOLock()
         }
         #else
-        _StorageWithMutex()
+        _Storage()
         #endif
     }()
 
