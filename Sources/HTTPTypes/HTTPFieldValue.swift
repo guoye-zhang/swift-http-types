@@ -14,10 +14,10 @@
 
 extension HTTPField {
     @usableFromInline
-    struct Value: Sendable {
+    struct Value: Hashable, Sendable {
         @usableFromInline
-        enum Storage: Equatable, Sendable {
-            case string(String)
+        enum Storage: Hashable, Sendable {
+            case ascii(String)
             case bytes([UInt8])
         }
 
@@ -25,14 +25,15 @@ extension HTTPField {
         let _storage: Storage
 
         @inlinable
-        init(unchecked: String) {
-            self._storage = .string(unchecked)
+        init(uncheckedASCII string: String) {
+            assert(string.utf8.isASCII && Self.isValid(string))
+            self._storage = .ascii(string)
         }
 
         @inlinable
         var string: String {
             switch self._storage {
-            case .string(let string):
+            case .ascii(let string):
                 return string
             case .bytes(let bytes):
                 return String(decoding: bytes, as: UTF8.self)
@@ -44,7 +45,7 @@ extension HTTPField {
             _ body: (UnsafeBufferPointer<UInt8>) throws(Failure) -> Return
         ) throws(Failure) -> Return {
             switch self._storage {
-            case .string(var string):
+            case .ascii(var string):
                 return try string.withUTF8 { buffer in
                     Result { () throws(Failure) in
                         try body(buffer)
@@ -61,41 +62,12 @@ extension HTTPField {
     }
 }
 
-extension HTTPField.Value: Hashable {
-
-    @inlinable
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        switch (lhs._storage, rhs._storage) {
-        case (.string(let lhs), .string(let rhs)):
-            return lhs == rhs
-        case (.bytes(let lhs), .bytes(let rhs)):
-            return lhs == rhs
-        default:
-            return lhs.withUnsafeBytes { lhsBytes in
-                rhs.withUnsafeBytes { rhsBytes in
-                    lhsBytes.elementsEqual(rhsBytes)
-                }
-            }
-        }
-    }
-
-    @inlinable
-    func hash(into hasher: inout Hasher) {
-        self.withUnsafeBytes { buffer in
-            for byte in buffer {
-                hasher.combine(byte)
-            }
-        }
-    }
-
-}
-
 extension HTTPField.Value {
 
     @inlinable
     init(legalize value: String) {
         if Self.isValid(value) {
-            self._storage = .string(value)
+            self._storage = .init(validated: value)
         } else {
             #if compiler(>=6.2) && !(os(watchOS) && _pointerBitWidth(_32))
             #if canImport(Darwin)
@@ -116,7 +88,7 @@ extension HTTPField.Value {
     @inlinable
     init(legalize bytes: some Collection<UInt8>) {
         if Self.isValid(bytes) {
-            self._storage = .init(from: bytes)
+            self._storage = .init(validated: bytes)
         } else {
             self._storage = Self.legalize(from: bytes)
         }
@@ -125,7 +97,7 @@ extension HTTPField.Value {
     @inlinable
     init(lenient bytes: some Collection<UInt8>) {
         if Self.isLenient(bytes) {
-            self._storage = .init(from: bytes)
+            self._storage = .init(validated: bytes)
         } else {
             self._storage = Self.cleanUpAsLenient(from: bytes)
         }
@@ -161,10 +133,10 @@ extension HTTPField.Value {
     @inlinable
     var isValidToken: Bool {
         switch self._storage {
-        case .string(let string):
+        case .ascii(let string):
             return HTTPField.isValidToken(string)
-        case .bytes(let bytes):
-            return HTTPField.isValidToken(bytes)
+        case .bytes:
+            return false
         }
     }
 }
@@ -181,14 +153,14 @@ extension HTTPField.Value: Codable {
         let container = try decoder.singleValueContainer()
         let isoLatin1 = try container.decode(String.self)
 
-        guard isoLatin1.unicodeScalars.allSatisfy({ $0.value <= UInt8.max }) && Self.isValid(isoLatin1) else {
+        guard let value = Self(validatingISOLatin1: isoLatin1) else {
             throw DecodingError.dataCorruptedError(
                 in: container,
                 debugDescription: "HTTP field value \"\(isoLatin1)\" contains invalid characters"
             )
         }
 
-        self.init(fromISOLatin1: isoLatin1)
+        self = value
     }
 }
 
@@ -349,10 +321,10 @@ extension HTTPField.Value {
             }
 
             if index == 0 {
-                return .string("")
+                return .ascii("")
             }
 
-            return .init(from: buffer[...lastValidIndex])
+            return .init(validated: buffer[...lastValidIndex])
         }
     }
 
@@ -384,10 +356,10 @@ extension HTTPField.Value {
             }
 
             if index == 0 {
-                return .string("")
+                return .ascii("")
             }
 
-            return .init(from: buffer[...lastValidIndex])
+            return .init(validated: buffer[...lastValidIndex])
         }
     }
     #endif
@@ -422,7 +394,7 @@ extension HTTPField.Value {
                 index += 1
             }
 
-            return .init(from: buffer)
+            return .init(validated: buffer)
         }
     }
 
@@ -441,7 +413,7 @@ extension HTTPField.Value {
                 }
             }
 
-            return .init(from: buffer)
+            return .init(validated: buffer)
         }
     }
     #endif
@@ -449,21 +421,23 @@ extension HTTPField.Value {
 
 extension HTTPField.Value.Storage {
     @inlinable
-    init(from bytes: some Sequence<UInt8>) {
-        #if canImport(Darwin)
-        if #available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *) {
-            if let string = String(validating: bytes, as: UTF8.self) {
-                self = .string(string)
-                return
-            }
+    init(validated string: String) {
+        assert(HTTPField.Value.isLenient(string.utf8))
+        if string.utf8.isASCII {
+            self = .ascii(string)
+        } else {
+            self = .bytes(Array(string.utf8))
         }
-        #else
-        if let string = String(validating: bytes, as: UTF8.self) {
-            self = .string(string)
-            return
+    }
+
+    @inlinable
+    init(validated bytes: some Collection<UInt8>) {
+        assert(HTTPField.Value.isLenient(bytes))
+        if bytes.isASCII {
+            self = .ascii(String(decoding: bytes, as: UTF8.self))
+        } else {
+            self = .bytes(Array(bytes))
         }
-        #endif
-        self = .bytes(Array(bytes))
     }
 }
 
@@ -478,33 +452,33 @@ extension HTTPField.Value {
     @inlinable
     var isoLatin1: String {
         switch self._storage {
-        case .string(let string):
-            if string.utf8.isASCII {
-                return string
-            }
-
-            return Self.transcodeToISOLatin1SlowPath(from: string.utf8)
+        case .ascii(let string):
+            return string
         case .bytes(let bytes):
-            if bytes.isASCII {
-                return self.string
-            }
-
             return Self.transcodeToISOLatin1SlowPath(from: bytes)
         }
     }
 
-    init(fromISOLatin1 string: String) {
+    init?(validatingISOLatin1 string: String) {
         if string.utf8.isASCII {
-            self._storage = .string(string)
+            guard Self.isValid(string) else {
+                return nil
+            }
+            self._storage = .ascii(string)
             return
         }
 
-        let bytes = string.unicodeScalars.lazy.map { scalar in
-            assert(scalar.value <= UInt8.max)
-            return UInt8(truncatingIfNeeded: scalar.value)
+        var bytes: [UInt8] = []
+        for scalar in string.unicodeScalars {
+            guard scalar.value <= UInt8.max else {
+                return nil
+            }
+            bytes.append(UInt8(truncatingIfNeeded: scalar.value))
         }
-
-        self._storage = .init(from: bytes)
+        guard Self.isValid(bytes) else {
+            return nil
+        }
+        self._storage = .bytes(bytes)
     }
 
     @inlinable
